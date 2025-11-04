@@ -3,5 +3,6 @@ services:
     name: leaf-disease-backend
     env: python
     plan: free
+    pythonVersion: "3.9.13"
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
