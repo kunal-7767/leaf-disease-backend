@@ -28,23 +28,18 @@ def load_model():
     except Exception as e:
         logger.error(f"❌ Custom model failed: {e}")
         
+        # Load model - ONLY OUR CUSTOM LEAF DISEASE MODEL
         try:
-            # Fallback 1: Try standard YOLOv8 model
-            logger.info("🔄 Trying standard YOLOv8 model...")
-            model = YOLO("yolov8n.pt")
-            logger.info("✅ Standard YOLOv8 model loaded as fallback")
-            return True
-        except Exception as e2:
-            logger.error(f"❌ Standard model failed: {e2}")
-            
-            try:
-                # Fallback 2: Try without model - API still works
-                logger.info("⚠️ Running in API-only mode (no detection)")
-                model = None
-                return True
-            except Exception as e3:
-                logger.error(f"❌ Complete model failure: {e3}")
-                return False
+            from ultralytics import YOLO
+            model = YOLO("best.pt")
+            logger.info("✅ OUR CUSTOM LEAF DISEASE MODEL LOADED SUCCESSFULLY!")
+            logger.info(f"📊 Our model classes: {model.names}")
+            logger.info("🚀 READY FOR LEAF DISEASE DETECTION!")
+        except Exception as e:
+            logger.error(f"❌❌❌ OUR CUSTOM MODEL FAILED: {e}")
+            logger.error("🔥 THIS IS CRITICAL - NO FALLBACK!")
+            # Crash so we know it's broken
+            raise Exception(f"OUR LEAF DISEASE MODEL FAILED: {e}")
 
 # Load model on startup
 model_loaded = load_model()
