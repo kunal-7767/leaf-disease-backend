@@ -1,43 +1,117 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from ultralytics import YOLO
 import cv2
 import numpy as np
-import logging
 import os
+import logging
 
 app = Flask(__name__)
 CORS(app)
 
-# Load model
-try:
-    model = YOLO("best.pt")
-    print("✅ Model loaded successfully")
-    print(f"📊 Model classes: {model.names}")
-except Exception as e:
-    print(f"❌ Error loading model: {e}")
-    model = None
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global model variable
+model = None
+
+def load_model():
+    """Load YOLO model with multiple fallback strategies"""
+    global model
+    try:
+        # Try loading custom model first
+        from ultralytics import YOLO
+        model = YOLO("best.pt")
+        logger.info("✅ Custom model loaded successfully")
+        logger.info(f"📊 Model classes: {model.names}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Custom model failed: {e}")
+        
+        try:
+            # Fallback 1: Try standard YOLOv8 model
+            logger.info("🔄 Trying standard YOLOv8 model...")
+            model = YOLO("yolov8n.pt")
+            logger.info("✅ Standard YOLOv8 model loaded as fallback")
+            return True
+        except Exception as e2:
+            logger.error(f"❌ Standard model failed: {e2}")
+            
+            try:
+                # Fallback 2: Try without model - API still works
+                logger.info("⚠️ Running in API-only mode (no detection)")
+                model = None
+                return True
+            except Exception as e3:
+                logger.error(f"❌ Complete model failure: {e3}")
+                return False
+
+# Load model on startup
+model_loaded = load_model()
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "message": "Leaf Disease Detection API",
+        "status": "running",
+        "model_loaded": model is not None,
+        "endpoints": ["/health", "/detect", "/model-info"]
+    })
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "healthy", 
+        "model_loaded": model is not None,
+        "service": "Leaf Disease Detection API"
+    })
+
+@app.route("/model-info", methods=["GET"])
+def model_info():
+    if model is None:
+        return jsonify({
+            "model_loaded": False,
+            "message": "Model not available - running in API mode"
+        })
+    
+    return jsonify({
+        "model_loaded": True,
+        "classes": model.names if hasattr(model, 'names') else [],
+        "num_classes": len(model.names) if hasattr(model, 'names') else 0
+    })
 
 @app.route("/detect", methods=["POST"])
 def detect():
     if model is None:
-        return jsonify({"error": "Model not loaded"}), 500
+        return jsonify({
+            "success": False,
+            "error": "Model not loaded", 
+            "message": "API is running but detection is unavailable"
+        }), 503
     
     if "image" not in request.files:
-        return jsonify({"error": "No image file provided"}), 400
+        return jsonify({
+            "success": False,
+            "error": "No image file provided"
+        }), 400
     
     try:
         file = request.files["image"]
+        
+        # Validate file
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
         
         # Read and decode image
         img_array = np.frombuffer(file.read(), np.uint8)
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
         
         if img is None:
-            return jsonify({"error": "Invalid image file"}), 400
+            return jsonify({"success": False, "error": "Invalid image file"}), 400
         
-        print(f"📐 Input image shape: {img.shape}")
+        logger.info(f"📐 Processing image: {img.shape}")
         
+        # Run detection
         results = model.predict(
             img, 
             conf=0.25,
@@ -45,8 +119,6 @@ def detect():
             imgsz=640,
             augment=False
         )
-        
-        print(f"🔍 Number of results: {len(results)}")
         
         detections = []
         result = results[0]
@@ -65,26 +137,37 @@ def detect():
                     "bbox": bbox
                 }
                 detections.append(detection)
-                
-                print(f"🎯 Detection {j}: {model.names[cls_id]} - {confidence:.2%}")
+                logger.info(f"🎯 Detection {j}: {model.names[cls_id]} - {confidence:.2%}")
         else:
-            print("❌ No detections found")
+            logger.info("❌ No detections found")
         
         return jsonify({
             "success": True,
             "detections": detections,
             "total_detections": len(detections),
-            "image_shape": img.shape
+            "image_shape": img.shape,
+            "model_used": "custom" if "best.pt" in str(model) else "standard"
         })
         
     except Exception as e:
-        print(f"💥 Detection error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"💥 Detection error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Detection failed",
+            "details": str(e)
+        }), 500
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "healthy", "model_loaded": model is not None})
+@app.route("/test", methods=["GET"])
+def test():
+    """Simple test endpoint"""
+    return jsonify({
+        "message": "API is working!",
+        "timestamp": os.times().elapsed,
+        "model_status": "loaded" if model else "not loaded"
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
+    logger.info(f"🚀 Starting server on port {port}")
+    logger.info(f"🔧 Model loaded: {model is not None}")
     app.run(host="0.0.0.0", port=port, debug=False)
