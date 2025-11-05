@@ -111,9 +111,11 @@ def detect():
             img, 
             conf=0.25,
             iou=0.45,
-            imgsz=640,
-            augment=False
-        )
+            imgsz=320,
+            device='cpu',
+            augment=False,
+            verbose=False
+            )
         
         detections = []
         result = results[0]
